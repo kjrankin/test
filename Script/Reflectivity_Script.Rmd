@@ -1,0 +1,418 @@
+---
+title: "Calculating Reflectivity"
+date: "2023-05-19"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    toc_depth: 5
+    highlight: tango
+    theme: paper
+    self_contained: yes
+    mode: selfcontained
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+oh dear 
+<br>
+
+# Introduction
+
+This script will help you calculate reflectivity. 
+<br>
+
+This script is divided in three sections, Concept, Setting up and Procedures.
+
+In the <span style="color:blue">Concept section</span> you will find the explanation of the equation used to calculate reflectivity.  
+
+In the <span style="color:blue">Setting up section</span>, you will find a list of the packages needed, exampels of the data frames required for the procedure and graphs to visualise the type of data used in these calculations.  
+
+In the <span style="color:blue">Procedures section</span>, you will find first one example with a simple data frame to explain the rationale of the code and then a section on batch calculations which is more practical to apply to a large data frame.
+
+
+# Concept
+
+Reflectivity is the ratio of total reflected to total incident radiation, integrated over the wavelength range of interest (proportion zero to one or percentage) (Smith et al., 2016b). Although, in the field of optics, reflectivity is used interchangeably with the total reflectance integrated across angles, the distinction between these two terms is particularly relevant in the field of thermal biology (Johnsen, 2012). Consequently, reflectance is wavelength resolved, whereas reflectivity as defined here is not wavelength resolved. (taken from Ospina-Rozo et al. 2022 - Biol Journal of Linnean Society)
+<br>
+
+Reflectivity is useful in experiments about thermoregulation since it combines reflectance measurement with the amount of light available (most often the sun irradiance). In addition, the same procedure can be applied for transmittance data. 
+<br>
+<br>
+
+This equation describes reflectivity:
+
+$$
+R= \frac{∫I(λ) F(λ) E(λ) dλ}{∫ I(λ) F(λ) dλ}
+$$
+
+Where:  
+$I(λ)$ is the irradiance at a given wavelength. The number of photons emitted by a source and received by a surface per unit of area. It can be the official sun irradiance, or the irradiance profile of a solar simulator.
+<br>
+$F(λ)$ in %, is the amount of light passing through a filter (i.e. filter transmittance) at a given wavelength. Use if any filter was placed between the illumination source and the sample. If the calculations are made with the sun irradiance, disregard this term
+<br>
+$E(λ)$ in %, is the reflectance of an object at a given wavelength. (Usually obtained by calibration against a white standard)
+<br>
+According to the equation, all values are integrated across wavelengths, which means at some point we need to obtain the area under the curve of a reflectance or irradiance profile. 
+<br>
+<br>
+Note: This is easy to do when working with only one column, but it is better to use functions when calculations are needed for many organisms/objects. 
+
+# Setting up 
+
+## Libraries
+
+```{r message=FALSE, warning=FALSE, eval=FALSE}
+install.packages("pavo") # Processing spectral data
+install.packages("dplyr") # Data wrangling
+install.packages("tidyr") # Data wrangling
+install.packages("ggplot2") # graphs
+install.packages("cowplot") # align graphs
+```
+
+```{r message=FALSE, warning=FALSE}
+library(pavo)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(cowplot)
+```
+
+
+
+## Data
+
+You will need the reflectance of the sample measured with an integrating sphere (not with an angle resolved spectrometer) and the irradiance spectrum of the sun. 
+
+This is an example to run this code: 
+```{r message=FALSE, warning=FALSE}
+# Reflectance from your samples
+Reflect<-read.csv("../Data/SampleReflectance.csv") %>% 
+  pavo::as.rspec(.) %>%  # transform to rspec.
+  pavo::procspec(.,fixneg = "zero") # set negatives to 0 (artifacts)
+```
+
+This file may be useful for supplementary images to compare with solar simulators:
+
+```{r message=FALSE, warning=FALSE}
+# Standard Solar Irradiance from 280 to 4000 nm
+# ASTM G173-03 Reference Spectra Derived from SMARTS v. 2.9.2 (AM1.5)
+# Global tilt  W*m-2*nm-1
+# from https://www.pveducation.org/pvcdrom/appendices/standard-solar-spectra 
+theorySunALL<-read.csv("../Data/OfficialSun.csv") %>%  
+  pavo::as.rspec(., whichwl = "wl") 
+
+# Limit irradiance to the appropriate wavelength range for your experiment
+Sun<-theorySunALL %>% 
+  dplyr::filter(wl>=400 & wl<=1700)
+
+```
+
+
+If an artificial light was used, for example a solar simulator, the irradiance of that illumination source is needed
+
+If any filters are placed between the light source and the sample, the transmittance of those filters is needed. 
+
+```{r message=FALSE, warning=FALSE}
+# Solar Simulator and Filters
+filters<-read.csv("../Data/SolarSimulatorAndFilters.csv") %>% 
+  pavo::as.rspec(.) %>% 
+  pavo::procspec(.,fixneg = "zero") %>% 
+  dplyr::rename(Full.f = halfsun) %>%  # rename
+  dplyr::mutate(vis.f = Full.f*visfilterTransmittance/100) %>% # vis filter
+  dplyr::mutate(nir.f = Full.f*nirfilterTransmittance/100) %>% # nir filter
+  dplyr::select(-visfilterTransmittance) %>% 
+  dplyr::select(-nirfilterTransmittance)
+
+```
+
+In this example you will find the data of the solar simulator located in Bio21 and the filters that are in the lab available for thermal experiments (note that these may be different from the ones for photography)
+
+
+## Visualisation
+
+### Reflectance
+
+This step is optional but it may be useful for quality control to observe the reflectance profile
+
+```{r}
+plot(Reflect[,c(1,2)], col="green", ylim=c(0,80)) # green beetle
+lines(Reflect[,c(1,3)], col="orange") # Gold beetle
+lines(Reflect[,c(1,4)], col="black") # Black beetle
+```
+
+### Irradiance
+
+Just for fun here I am comparing the solar irradiance with the solar simulator irradiance
+
+```{r}
+plot(Sun, ylim=c(0,2.5)) # sun
+lines(filters$wl,filters$Full.f, col="pink") #solar simulator
+```
+
+### Filters
+
+```{r}
+plot(filters[,c(1,2)]) # full irradiance of the solar simulator
+lines (filters[,c(1,3)], col="blue") # visible
+lines (filters[,c(1,4)], col="red") # nir
+```
+
+# Procedures
+
+## Rationale
+
+This is an example with only one species to illustrate the workflow
+
+### 1. Data Frame
+
+Create a Data frame with reflectance and irradiance
+
+```{r message=FALSE, warning=FALSE}
+OneSpp <- data.frame(Reflect$wl,Reflect$GreenBeetle, filters$Full.f )
+head(OneSpp)
+```
+
+
+### 2. Multiply
+
+Find the product between reflectivity and irradiance
+
+```{r message=FALSE, warning=FALSE}
+# Find the product and keep only that vector
+OneSppR <- 
+  OneSpp %>% 
+  mutate(GreenB_Product = Reflect.GreenBeetle/100 * filters.Full.f) %>% #multiply
+  select(Reflect.wl,GreenB_Product) %>% # Keep only the product and wl.
+  pavo::as.rspec()
+
+```
+
+Note: In this example I used the Reflectance of the beetle divided by 100, i.e. as a fraction that can vary between 0 and 1. I do this to be able to illustrate the results in a plot. However, it is not required to divide by 100. If we divide by 100, the answer will be the reflectivity as a proportion, if we do not divide, the answer will be a percentage. 
+
+### 3. AUC
+
+Find the area under the curve for the product that we just calculated and the area under the curve for the raw irradiance of the illumination source.
+
+```{r message=FALSE, warning=FALSE}
+# Find the area under the curve for the sample
+AreaSample <- summary(OneSppR)$B1 #in Pavo B1 is the AUC
+
+
+# Find the area under the curve for the irrandiance
+AreaLight <- summary(filters[,c(1,2)])$B1 #in Pavo B1 is the AUC
+
+```
+
+### 4. Standardise
+
+Divide the area of the product by the area of the illumination source
+```{r}
+AreaSample/AreaLight
+```
+
+This is the proportion of light that this species is able to reflect. 
+
+### 5. Visualise
+
+Here the shaded area is the amount of light that the beetle can reflect under this light source:
+
+```{r message=FALSE, warning=FALSE}
+
+OneSppR$Filter <- filters$Full.f
+
+plotS1C <- ggplot() +
+  geom_line(data=filters,
+            mapping = aes(x=wl, y=Full.f),
+            colour="#E6B200")+ # Add irradiance of the light source
+  geom_area(data=OneSppR,
+            mapping = aes(x=wl, 
+                          y=GreenB_Product),
+            fill="#00A08A", alpha = 0.3) + # AUC for the product reflct * Irr
+  theme_bw()+ # a simple theme
+  xlab("Wavelength (nm)")+ # labels
+  ylab(expression("   Irradiance \n (W/m^2/nm)"))+ # labels 
+  theme(axis.title.y = element_text(size=7),
+        axis.title.x = element_text(size=7),
+        axis.text.y = element_text(size=7),
+        axis.text.x = element_text(size=7)) + # controlling the axis
+  scale_x_continuous(breaks=seq(300,1700,200)) +
+  theme(plot.margin = unit(c(0, 0.4, 0, 0.4), "cm"))
+
+plotS1C 
+```
+
+<br>
+<br>
+
+## Batch calculations
+
+In this section, functions are used to apply the same steps described previously to a larger data frame: 
+
+### 1. Data frame
+
+Add the irradiance after the last column of each reflectivity data frame. When working with different filters, make one data frame for each filter:
+
+```{r message=FALSE, warning=FALSE}
+
+### One data frame for Total spectrum
+forTOT<-Reflect
+forTOT$irr<-filters$Full.f
+
+### One data frame for NIR
+forNIR<-Reflect
+forNIR$irr<-filters$nir.f
+
+### One data frame for vis
+forVIS<-Reflect
+forVIS$irr<-filters$vis.f
+```
+
+### 2. Multiply
+
+For this step, first define a function to automatically multiply each column by the last column of the data frame: 
+
+```{r message=FALSE, warning=FALSE}
+
+# Define the following function to find the multiplication
+
+Find.multiplication<- # name the function
+  function(s){ 
+  vector2<-rep("NA", length(s[ , 1])) # create empty vector
+  for( i in 2 : length(s) - 1){ # for each column
+    for (y in 1 : length(s[ , 1])){ # for each row
+      vector2[y] <- s[y, i] * s[y, "irr"] # multiply each column by the last one
+    }
+    s[i] <- as.numeric(vector2) # fill that empty vector with values
+  }
+  return(s)
+}
+```
+
+This function will produce a new data frame where each reflectance column has been converter to the product between irradiance and reflectance. 
+<br>
+
+Apply the function to each data frame, i.e. one for each filter
+
+```{r message=FALSE, warning=FALSE}
+
+# Total spectrum 
+PrelValReflTOT <- 
+  forTOT %>% 
+  Find.multiplication(.) %>% # Apply function
+  select (-wl, # the wavelengths were altered, eliminate
+          -irr) %>% # irradiance not required anymore, eliminate
+  mutate (wl = Reflect$wl) %>%  # add the correct wavelength column
+  select(wl, everything()) %>% # set the wl column as column 1
+  as.rspec(.) # convert to rspec object
+
+
+# NIR
+
+PrelValReflNIR <- 
+  forNIR %>%   # Change data frame for NIR
+  Find.multiplication(.) %>% 
+  select (-wl, 
+          -irr) %>% 
+  mutate (wl = Reflect$wl) %>%  
+  select(wl, everything()) %>% 
+  as.rspec(.) 
+
+
+# VIS
+
+PrelValReflVIS <- 
+  forVIS %>%  # Change data frame for VIS
+  Find.multiplication(.) %>% 
+  select (-wl, 
+          -irr) %>% 
+  mutate (wl = Reflect$wl) %>%  
+  select(wl, everything()) %>% 
+  as.rspec(.) 
+
+```
+
+### 3. AUC
+
+Calculate the area under the curve for the product between samples and irradiance. Then, calculate the area from the 
+
+```{r message=FALSE, warning=FALSE}
+
+# Calculate AUC for preliminary values of the samples
+
+r.TOT <- summary(PrelValReflTOT)$B1 
+r.NIR <- summary(PrelValReflNIR)$B1 
+r.VIS <- summary(PrelValReflVIS)$B1
+
+# Calculate AUC for the filters
+
+AUCsun <- summary(filters[,c(1,2)])$B1 # Portal open -  full spectrum
+AUCnir <- summary(filters[,c(1,3)])$B1 # When using filter to let pass NIR
+AUCvis <- summary(filters[,c(1,4)])$B1 # When using filter to let pass vis
+
+```
+
+### 4. Standardise
+
+In this step it is only required to divide the area under the curve calculated for each sample under each filter, by the AUC of the correspondent illumination condition. 
+
+```{r message=FALSE, warning=FALSE}
+
+Reflectivity<-data.frame("spp" = names(Reflect[-1]),
+                         "FUL" = r.TOT / AUCsun, # accross full spectrum
+                         "NIR" = r.NIR / AUCnir, # NIR
+                         "VIS" = r.VIS / AUCvis) # VIS
+Reflectivity <-
+  Reflectivity %>%
+  arrange (spp)
+
+Reflectivity
+
+```
+
+A data frame like this is one of the most useful ways to organise the data in case it needs to be combined with other data per species such as size or climate, etc. 
+
+<br>
+
+### 5. Visualise
+
+It is not useful to visualise a shaded area (like in the "Rational" section) when working with a very large data set. Instead, it may be more interesting to look at the reflectivity as percentages. 
+
+Note: In the batch calculations workflow, reflectance was used as percentage, i.e. it was not divided by 100 to convert it into a fraction. Thus, we obtained the reflectivity as a percentage. 
+
+```{r message=FALSE, warning=FALSE}
+
+# Reflectivity under the full spectrum
+PFULL <- ggplot(data=Reflectivity, aes(x=spp, y=FUL)) +
+  geom_bar(stat="identity", fill="black")+
+  geom_text(aes(label=round(FUL, 2)), vjust=1.6, color="white", size=3.5)+
+  ylim(0,100)+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90))
+
+# Reflectivity under the NIR light
+
+PNIR <- ggplot(data=Reflectivity, aes(x=spp, y=NIR)) +
+  geom_bar(stat="identity", fill="darkred")+
+  geom_text(aes(label=round(NIR, 2)), vjust=1.6, color="white", size=3.5)+
+  ylim(0,100)+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90))
+
+# Reflectivity under VIS light
+PVIS <- ggplot(data=Reflectivity, aes(x=spp, y=VIS)) +
+  geom_bar(stat="identity", fill="slateblue")+
+  geom_text(aes(label=round(VIS, 2)), vjust=1.6, color="white", size=3.5)+
+  ylim(0,100)+
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 90))
+
+plot_grid(PFULL, PNIR, PVIS, align='h', ncol=3)
+
+```
+
+As shown in the figure, the calculations allow us to compare the amount of light that a natural object can reflect under a specific illumination. 
